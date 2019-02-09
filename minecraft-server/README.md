@@ -2,7 +2,6 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/itzg/minecraft-server.svg)](https://hub.docker.com/r/itzg/minecraft-server/)
 [![Docker Stars](https://img.shields.io/docker/stars/itzg/minecraft-server.svg?maxAge=2592000)](https://hub.docker.com/r/itzg/minecraft-server/)
 [![GitHub Issues](https://img.shields.io/github/issues-raw/itzg/dockerfiles.svg)](https://github.com/itzg/dockerfiles/issues)
-[![](https://img.shields.io/gitter/room/itzg/dockerfiles.svg?style=flat)](https://gitter.im/itzg/dockerfiles)
 
 This docker image provides a Minecraft Server that will automatically download the latest stable
 version at startup. You can also run/upgrade to any specific version or the
@@ -91,6 +90,17 @@ to map a directory on your host machine to the container's `/data` directory, su
 
 When attached in this way you can stop the server, edit the configuration under your attached `/path/on/host`
 and start the server again with `docker start CONTAINERID` to pick up the new configuration.
+
+**NOTE**: By default, the files in the attached directory will be owned by the host user with UID of 1000 and host group with GID of 1000.
+You can use an different UID and GID by passing the options:
+
+    -e UID=1000 -e GID=1000
+
+replacing 1000 with a UID and GID that is present on the host.
+Here is one way to find the UID and GID:
+
+    id some_host_user
+    getent group some_host_group
 
 ## Versions
 
@@ -264,15 +274,6 @@ This works well if you want to have a common set of plugins in a separate
 location, but still have multiple worlds with different server requirements
 in either persistent volumes or a downloadable archive.
 
-### Building an image with plugins
-
-You can also create your own Docker images by extending the `itzg/minecraft-server` image.
-The image contains an `ONBUILD` trigger that will copy a `plugins.yml` file from you build directory and download any plugins specified in it.
-
-You can read about the [`ToF-BuildTools` and how to use them here](https://git.faldoria.de/tof/server/build-tools).
-
-You can also find [an example](examples/ToF-build/) with a custom image in the examples dir.
-
 ## Running a PaperSpigot server
 
 Enable PaperSpigot server mode by adding a `-e TYPE=PAPER -e VERSION=1.9.4` to your command-line.
@@ -331,38 +332,30 @@ This works well if you want to have a common set of plugins in a separate
 location, but still have multiple worlds with different server requirements
 in either persistent volumes or a downloadable archive.
 
-## Running a Server with a Feed-The-Beast (FTB) / CurseForge modpack
+## Running a Server with a Feed-The-Beast (FTB) modpack
 
-Enable this server mode by adding a `-e TYPE=FTB` or `-e TYPE=CURSEFORGE` to your command-line,
+Enable this server mode by adding a `-e TYPE=FTB` to your command-line,
 but note the following additional steps needed...
 
-You need to specify a modpack to run, using the `FTB_SERVER_MOD` or `CF_SERVER_MOD` environment
-variable. An FTB/CurseForge server modpack is available together with its respective
-client modpack on https://www.feed-the-beast.com under "Additional Files." Similar you can
-locate the modpacks for CurseForge at https://minecraft.curseforge.com/modpacks .
-
-There are a couple of options for obtaining an FTB/CurseForge modpack. 
-One options is that you can pre-download the **server** modpack and copy the modpack to the `/data`
+You need to specify a modpack to run, using the `FTB_SERVER_MOD` environment
+variable. An FTB server modpack is available together with its respective
+client modpack on https://www.feed-the-beast.com under "Additional Files."
+Because of the interactive delayed download mechanism on that web site, you
+must manually download the server modpack. Copy the modpack to the `/data`
 directory (see "Attaching data directory to host filesystem”).
 
 Now you can add a `-e FTB_SERVER_MOD=name_of_modpack.zip` to your command-line.
 
-    docker run -d -v /path/on/host:/data -e TYPE=FTB \
+    $ docker run -d -v /path/on/host:/data -e TYPE=FTB \
         -e FTB_SERVER_MOD=FTBPresentsSkyfactory3Server_3.0.6.zip \
         -p 25565:25565 -e EULA=TRUE --name mc itzg/minecraft-server
 
-Instead of pre-downloading a modpack from the FTB/CurseForge site, you
-can you set `FTB_SERVER_MOD` (or `CF_SERVER_MOD`) to the **server** URL of a modpack, such as
+Instead of explicitly downloading a modpack from the Feed the Beast site, you
+can you set `FTB_SERVER_MOD` to the **server** URL of a modpack, such as
 
-    docker run ... \
+    $ docker run ... \
       -e TYPE=FTB \
       -e FTB_SERVER_MOD=https://www.feed-the-beast.com/projects/ftb-infinity-lite-1-10/files/2402889
-
-or for a CurseForce modpack:
-
-    docker run ... \
-      -e TYPE=CURSEFORGE \
-      -e CF_SERVER_MOD=https://minecraft.curseforge.com/projects/enigmatica2expert/files/2663153/download
 
 ### Using the /data volume
 
@@ -386,15 +379,24 @@ with `FTB_SERVER_MOD` specifying the updated modpack file.
         -e FTB_SERVER_MOD=FTBPresentsSkyfactory3Server_3.0.7.zip \
         -p 25565:25565 -e EULA=TRUE --name mc itzg/minecraft-server
 
-### Fixing "unable to launch forgemodloader"
+### FTB server JVM options
 
-If your server's modpack fails to load with an error [like this](https://support.feed-the-beast.com/t/cant-start-crashlanding-server-unable-to-launch-forgemodloader/6028/2):
+An FTB server modpack contains its own startup script that launches the
+JVM and it does not use the `JVM_OPTS` environment variable. Instead
+you can use `MIN_RAM` and `MAX_RAM` variables. These are appended to
+the JVM `-Xms` and `-Xmx` options. For example, `-e MIN_RAM=2G` results
+in `-Xms2G` passed to the JVM.
 
-    unable to launch forgemodloader
+Additionally, `PERMGEN_SIZE` is passed on to `-XX:PermSize`. Here is an
+example:
 
-then you apply a workaround by adding this to the run invocation:
+    $ docker run -d -v /path/on/host:/data -e TYPE=FTB \
+        -e MIN_RAM=1G -e MAX_RAM=2G -e PERMGEN_SIZE=512M \
+        -e FTB_SERVER_MOD=FTBPresentsSkyfactory3Server_3.0.6.zip \
+        -p 25565:25565 -e EULA=TRUE --name mc itzg/minecraft-server
 
-    -e FTB_LEGACYJAVAFIXER=true
+Note: The FTB server start script will also override other options,
+like `MOTD`.
 
 ## Running a SpongeVanilla server
 
@@ -404,21 +406,12 @@ If you want to run a specific version, you can add `-e SPONGEVERSION=1.11.2-6.1.
 
     docker run -d -v /path/on/host:/data -e TYPE=SPONGEVANILLA \
         -p 25565:25565 -e EULA=TRUE --name mc itzg/minecraft-server
-
-You can also choose to use the `EXPERIMENTAL` branch.
+	
+You can also choose to use the `EXPERIMENTAL` branch. 
 Just change it with `SPONGEBRANCH`, such as:
 
     $ docker run -d -v /path/on/host:/data ... \
         -e TYPE=SPONGEVANILLA -e SPONGEBRANCH=EXPERIMENTAL ...
-
-## Running with a custom server JAR
-
-If you would like to run a custom server JAR, set `-e TYPE=CUSTOM` and pass the custom server
-JAR via `CUSTOM_SERVER`. It can either be a URL or a container path to an existing JAR file. 
-
-If it is a URL, it will only be downloaded into the `/data` directory if it wasn't already. As
-such, if you need to upgrade or re-download the JAR, then you will need to stop the container,
-remove the file from the container's `/data` directory, and start again. 
 
 ## Using Docker Compose
 
@@ -452,16 +445,6 @@ Now, go play...or adjust the  `environment` section to configure
 this server instance.    
 
 ## Server configuration
-
-### Server name
-
-The server name (e.g. for bungeecord) can be set like:
-    docker run -d -e SERVER_NAME=MyServer ...
-
-### Server port
-
-The server port can be set like:
-    docker run -d -e SERVER_PORT=25565 ...
 
 ### Difficulty
 
@@ -564,12 +547,6 @@ If set to true, players will be set to spectator mode if they die.
 
     docker run -d -e HARDCORE=false
 
-### Snooper
-
-If set to false, the server will not send data to snoop.minecraft.net server.
-
-    docker run -d -e SNOOPER_ENABLED=false
-
 ### Max Build Height
 
 The maximum height in which building is allowed.
@@ -636,14 +613,8 @@ The message of the day, shown below each server entry in the UI, can be changed 
 
     docker run -d -e 'MOTD=My Server' ...
 
-If you leave it off, a default is computed from the server type and version, such as
-
-    A Paper Minecraft Server powered by Docker
-
-when `TYPE` is `PAPER`. That way you can easily differentiate between several servers you may have started.
-
-_The example shows how to specify a server message of the day that contains spaces by putting quotes
-around the whole thing._
+If you leave it off, the last used or default message will be used. _The example shows how to specify a server
+message of the day that contains spaces by putting quotes around the whole thing._
 
 ### PVP Mode
 
@@ -655,18 +626,17 @@ environment variable set to `false`, such as
 ### Level Type and Generator Settings
 
 By default, a standard world is generated with hills, valleys, water, etc. A different level type can
-be configured by setting `LEVEL_TYPE` to an expected type, such as
+be configured by setting `LEVEL_TYPE` to
 
 * DEFAULT
 * FLAT
 * LARGEBIOMES
 * AMPLIFIED
 * CUSTOMIZED
-* BUFFET
 
 Descriptions are available at the [gamepedia](http://minecraft.gamepedia.com/Server.properties).
 
-When using a level type of `FLAT`, `CUSTOMIZED`, and `BUFFET`, you can further configure the world generator
+When using a level type of `FLAT` and `CUSTOMIZED`, you can further configure the world generator
 by passing [custom generator settings](http://minecraft.gamepedia.com/Superflat).
 **Since generator settings usually have ;'s in them, surround the -e value with a single quote, like below.**
 
@@ -706,19 +676,6 @@ will be deleted when the container is deleted.
 you should use an IP address or a globally resolveable FQDN, or else the
 name of a linked container.
 
-### Cloning world from a container path
-
-The `WORLD` option can also be used to reference a directory that will be used
-as a source to clone the world directory.
-
-For example, the following would initially clone the world's content
-from `/worlds/basic`. Also notice in the example that you can use a
-read-only volume attachment to ensure the clone source remains pristine.
-
-```
-docker run ... -v $HOME/worlds:/worlds:ro -e WORLD=/worlds/basic 
-```
-
 ### Downloadable mod/plugin pack for Forge, Bukkit, and Spigot Servers
 
 Like the `WORLD` option above, you can specify the URL of a "mod pack"
@@ -731,11 +688,6 @@ To use this option pass the environment variable `MODPACK`, such as
 top level of the zip archive. Make sure the jars are compatible with the
 particular `TYPE` of server you are running.
 
-You may also download individual mods using the `MODS` environment variable and supplying the URL
-to the jar files. Multiple mods/plugins should be comma separated.
-
-    docker run -d -e MODS=https://www.example.com/mods/mod1.jar,https://www.example.com/mods/mod2.jar ... 
-
 ### Remove old mods/plugins
 
 When the option above is specified (`MODPACK`) you can also instruct script to
@@ -745,8 +697,10 @@ To use this option pass the environment variable `REMOVE_OLD_MODS="TRUE"`, such 
 
     docker run -d -e REMOVE_OLD_MODS="TRUE" -e MODPACK=http://www.example.com/mods/modpack.zip ...
 
+**NOTE:** This option will be taken into account only when option `MODPACK` is also used.
+
 **WARNING:** All content of the `mods` or `plugins` directory will be deleted
-before unpacking new content from the MODPACK or MODS. 
+before unpacking new content from the zip file.
 
 ### Online mode
 
@@ -754,24 +708,7 @@ By default, server checks connecting players against Minecraft's account databas
 
     docker run -d -e ONLINE_MODE=FALSE ...
 
-### Allow flight
-
-Allows users to use flight on your server while in Survival mode, if they have a mod that provides flight installed.
-
-    -e ALLOW_FLIGHT=TRUE|FALSE
-
 ## Miscellaneous Options
-
-### Running as alternate user/group ID
-
-By default, the container will switch to user ID 1000 and group ID 1000;
-however, you can override those values by setting `UID` and/or `GID` as environmental entries, during the `docker run` command.
-
-    -e UID=1234
-    -e GID=1234
-
-The container will also skip user switching if the `--user`/`-u` argument
-is passed to `docker run`.
 
 ### Memory Limit
 
@@ -786,19 +723,12 @@ ways to adjust the memory settings:
 The values of all three are passed directly to the JVM and support format/units as
 `<size>[g|G|m|M|k|K]`.
 
+### /data ownership
+
+In order to adapt to differences in `UID` and `GID` settings the entry script will attempt to correct ownership and writability of the `/data` directory. This logic can be disabled by setting `-e SKIP_OWNERSHIP_FIX=TRUE`.
+
 ### JVM Options
 
 General JVM options can be passed to the Minecraft Server invocation by passing a `JVM_OPTS`
 environment variable. Options like `-X` that need to proceed general JVM options can be passed
 via a `JVM_XX_OPTS` environment variable.
-
-For some cases, if e.g. after removing mods, it could be necessary to startup minecraft with an additional `-D` parameter like `-Dfml.queryResult=confirm`. To address this you can use the environment variable `JVM_DD_OPTS`, which builds the params from a given list of values separated by space, but without the `-D` prefix. To make things running under systems (e.g. Plesk), which doesn't allow `=` inside values, a `:` (colon) could be used instead. The upper example would look like this:
-`JVM_DD_OPTS=fml.queryResult:confirm`, and will be converted to `-Dfml.queryResult=confirm`. 
-
-### HTTP Proxy
-
-You may configure the use of an HTTP/HTTPS proxy by passing the proxy's URL via the `PROXY`
-environment variable. In [the example compose file](docker-compose-proxied.yml) it references
-a companion squid proxy by setting the equivalent of
-
-    -e PROXY=proxy:3128
