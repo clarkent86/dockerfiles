@@ -1,49 +1,77 @@
-FROM openjdk:8u131-jre-alpine
+FROM openjdk:8u171-jre-alpine
 
 LABEL maintainer "itzg"
 
-RUN apk add -U \
+RUN apk add --no-cache -U \
           openssl \
           imagemagick \
           lsof \
           su-exec \
+          shadow \
           bash \
           curl iputils wget \
           git \
           jq \
           mysql-client \
-          python python-dev py2-pip && \
-        rm -rf /var/cache/apk/*
+          tzdata \
+          rsync \
+          python python-dev py2-pip
 
 RUN pip install mcstatus
 
-HEALTHCHECK CMD mcstatus localhost ping
+HEALTHCHECK CMD mcstatus localhost:$SERVER_PORT ping
 
 RUN addgroup -g 1000 minecraft \
   && adduser -Ss /bin/false -u 1000 -G minecraft -h /home/minecraft minecraft \
-  && mkdir /data \
-  && mkdir /config \
-  && mkdir /mods \
-  && mkdir /plugins \
+  && mkdir -m 777 /data /mods /config /plugins \
   && chown minecraft:minecraft /data /config /mods /plugins /home/minecraft
 
 EXPOSE 25565 25575
 
-ADD https://github.com/itzg/restify/releases/download/1.0.4/restify_linux_amd64 /usr/local/bin/restify
-ADD https://github.com/itzg/rcon-cli/releases/download/1.3/rcon-cli_linux_amd64 /usr/local/bin/rcon-cli
-COPY start* /
+ARG RESTIFY_VER=1.1.4
+ARG RCON_CLI_VER=1.4.0
+ARG MC_SERVER_RUNNER_VER=1.3.0
+ARG TOF_BUILDTOOLS_VER=1.2.0
+ARG ARCH=amd64
+
+ADD https://github.com/itzg/restify/releases/download/${RESTIFY_VER}/restify_${RESTIFY_VER}_linux_${ARCH}.tar.gz /tmp/restify.tgz
+RUN tar -x -C /usr/local/bin -f /tmp/restify.tgz restify && \
+  rm /tmp/restify.tgz
+
+ADD https://github.com/itzg/rcon-cli/releases/download/${RCON_CLI_VER}/rcon-cli_${RCON_CLI_VER}_linux_${ARCH}.tar.gz /tmp/rcon-cli.tgz
+RUN tar -x -C /usr/local/bin -f /tmp/rcon-cli.tgz rcon-cli && \
+  rm /tmp/rcon-cli.tgz
+
+ADD https://github.com/itzg/mc-server-runner/releases/download/${MC_SERVER_RUNNER_VER}/mc-server-runner_${MC_SERVER_RUNNER_VER}_linux_${ARCH}.tar.gz /tmp/mc-server-runner.tgz
+RUN tar -x -C /usr/local/bin -f /tmp/mc-server-runner.tgz mc-server-runner && \
+  rm /tmp/mc-server-runner.tgz
+
+ADD https://git.faldoria.de/tof/server/build-tools/-/jobs/artifacts/buildtools-${TOF_BUILDTOOLS_VER}/raw/target/ToF-BuildTools.jar?job=release-artifact /tmp/tof-buildtools/BuildTools.jar
+
+ONBUILD ARG BUILDTOOLS_OUTPUT=/plugins
+ONBUILD COPY Dockerfile *plugins.yml /tmp/tof-buildtools/
+ONBUILD RUN java -jar /tmp/tof-buildtools/BuildTools.jar \
+  --config "/tmp/tof-buildtools/plugins.yml" \
+  --configs "plugins.yml" \
+  --dir "/tmp/tof-buildtools/" \
+  --output ${BUILDTOOLS_OUTPUT} && \
+  chown -R minecraft:minecraft ${BUILDTOOLS_OUTPUT} && \
+  rm -fR /tmp/tof-buildtools/
+
 COPY mcadmin.jq /usr/share
 RUN chmod +x /usr/local/bin/*
 
-VOLUME ["/data","/mods","/config","/plugins","/home/minecraft"]
+VOLUME ["/data","/mods","/config"]
 COPY server.properties /tmp/server.properties
 WORKDIR /data
 
 ENTRYPOINT [ "/start" ]
 
 ENV UID=1000 GID=1000 \
-    MOTD="A Minecraft Server Powered by Docker" \
+    MOTD="An enhanced Java-opts Spigot Minecraft server. Aejosms." \
     JVM_XX_OPTS="-XX:+UseG1GC -Xmx4G -Xms4G -Dsun.rmi.dgc.server.gcInterval=2147483646 -XX:+UnlockExperimentalVMOptions -XX:G1NewSizePercent=20 -XX:G1ReservePercent=20 -XX:MaxGCPauseMillis=50 -XX:G1HeapRegionSize=32M" INIT_MEMORY="1G" MAX_MEMORY="8G" \
     TYPE=VANILLA VERSION=LATEST FORGEVERSION=RECOMMENDED SPONGEBRANCH=STABLE SPONGEVERSION= LEVEL=world \
     PVP=true DIFFICULTY=easy ENABLE_RCON=true RCON_PORT=25575 RCON_PASSWORD=minecraft \
     LEVEL_TYPE=DEFAULT GENERATOR_SETTINGS= WORLD= MODPACK= ONLINE_MODE=TRUE CONSOLE=true
+COPY start* /
+RUN dos2unix /start* && chmod +x /start*
