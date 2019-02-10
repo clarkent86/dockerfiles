@@ -27,7 +27,7 @@ function downloadSpigot {
   esac
 
   if [[ -z $downloadUrl ]]; then
-    downloadUrl=$(restify --class=jar-div https://mcadmin.net/ | \
+    downloadUrl=$(restify --class=jar-div https://getbukkit.org/download/ | \
       jq --arg version "$match $VANILLA_VERSION" -r -f /usr/share/mcadmin.jq)
     if [[ -z $downloadUrl ]]; then
       echo "ERROR: Version $VANILLA_VERSION is not supported for $TYPE"
